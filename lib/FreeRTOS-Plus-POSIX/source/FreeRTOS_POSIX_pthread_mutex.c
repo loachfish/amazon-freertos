@@ -96,13 +96,12 @@ static void prvInitializeStaticMutex( pthread_mutex_internal_t * pxMutex )
 
 int pthread_mutex_destroy( pthread_mutex_t * mutex )
 {
-    pthread_mutex_internal_t * pxMutex = ( pthread_mutex_internal_t * ) ( *mutex );
+    pthread_mutex_internal_t * pxMutex = ( pthread_mutex_internal_t * ) ( mutex );
 
     /* Free resources in use by the mutex. */
     if( pxMutex->xTaskOwner == NULL )
     {
         vSemaphoreDelete( ( SemaphoreHandle_t ) &pxMutex->xMutex );
-        vPortFree( pxMutex );
     }
 
     return 0;
@@ -114,10 +113,7 @@ int pthread_mutex_init( pthread_mutex_t * mutex,
                         const pthread_mutexattr_t * attr )
 {
     int iStatus = 0;
-    pthread_mutex_internal_t * pxMutex = NULL;
-
-    /* Allocate memory for new mutex object. */
-    pxMutex = ( pthread_mutex_internal_t * ) pvPortMalloc( sizeof( pthread_mutex_internal_t ) );
+    pthread_mutex_internal_t * pxMutex = ( pthread_mutex_internal_t* ) mutex;
 
     if( pxMutex == NULL )
     {
@@ -127,8 +123,7 @@ int pthread_mutex_init( pthread_mutex_t * mutex,
 
     if( iStatus == 0 )
     {
-        /* Clear the newly-allocated mutex. */
-        ( void ) memset( pxMutex, 0x00, sizeof( pthread_mutex_internal_t ) );
+        *pxMutex = FREERTOS_POSIX_MUTEX_INITIALIZER;
 
         /* No attributes given, use default attributes. */
         if( attr == NULL )
@@ -164,7 +159,6 @@ int pthread_mutex_init( pthread_mutex_t * mutex,
         {
             /* Mutex successfully created. */
             pxMutex->xIsInitialized = pdTRUE;
-            *mutex = ( pthread_mutex_t ) pxMutex;
         }
     }
 
@@ -184,7 +178,7 @@ int pthread_mutex_timedlock( pthread_mutex_t * mutex,
                              const struct timespec * abstime )
 {
     int iStatus = 0;
-    pthread_mutex_internal_t * pxMutex = ( pthread_mutex_internal_t * ) ( *mutex );
+    pthread_mutex_internal_t * pxMutex = ( pthread_mutex_internal_t * ) ( mutex );
     TickType_t xDelay = portMAX_DELAY;
     BaseType_t xFreeRTOSMutexTakeStatus = pdFALSE;
 
@@ -197,7 +191,17 @@ int pthread_mutex_timedlock( pthread_mutex_t * mutex,
     /* Convert abstime to a delay in TickType_t if provided. */
     if( abstime != NULL )
     {
-        iStatus = UTILS_AbsoluteTimespecToTicks( abstime, &xDelay );
+        struct timespec xCurrentTime = { 0 };
+
+        /* Get current time */
+        if( clock_gettime( CLOCK_REALTIME, &xCurrentTime ) != 0 )
+        {
+            iStatus = EINVAL;
+        }
+        else
+        {
+            iStatus = UTILS_AbsoluteTimespecToDeltaTicks( abstime, &xCurrentTime, &xDelay );
+        }
 
         /* If abstime was in the past, still attempt to lock the mutex without
          * blocking, per POSIX spec. */
@@ -272,7 +276,7 @@ int pthread_mutex_trylock( pthread_mutex_t * mutex )
 int pthread_mutex_unlock( pthread_mutex_t * mutex )
 {
     int iStatus = 0;
-    pthread_mutex_internal_t * pxMutex = ( pthread_mutex_internal_t * ) ( *mutex );
+    pthread_mutex_internal_t * pxMutex = ( pthread_mutex_internal_t * ) ( mutex );
 
     /* If mutex in uninitialized, perform initialization. */
     prvInitializeStaticMutex( pxMutex );
@@ -287,6 +291,10 @@ int pthread_mutex_unlock( pthread_mutex_t * mutex )
 
     if( iStatus == 0 )
     {
+        /* Suspend the scheduler so that
+         * mutex is unlocked AND owner is updated atomically */
+        vTaskSuspendAll();
+
         /* Call the correct FreeRTOS mutex unlock function based on mutex type. */
         if( pxMutex->xAttr.iType == PTHREAD_MUTEX_RECURSIVE )
         {
@@ -300,6 +308,9 @@ int pthread_mutex_unlock( pthread_mutex_t * mutex )
         /* Update the owner of the mutex. A recursive mutex may still have an
          * owner, so it should be updated with xSemaphoreGetMutexHolder. */
         pxMutex->xTaskOwner = xSemaphoreGetMutexHolder( ( SemaphoreHandle_t ) &pxMutex->xMutex );
+
+        /* Resume the scheduler */
+        ( void ) xTaskResumeAll();
     }
 
     return iStatus;
