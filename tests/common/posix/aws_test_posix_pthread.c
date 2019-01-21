@@ -529,6 +529,7 @@ TEST( Full_POSIX_PTHREAD, pthread_cond_signal )
 {
     int iStatus = 0;
     BaseType_t xMutexCreated = pdFALSE;
+    BaseType_t xCondCreated = pdFALSE;
     volatile BaseType_t xThreadCreated = pdFALSE;
 #if posixconfigENABLE_PTHREAD_COND_T == 0
     pthread_cond_t xCond;
@@ -545,7 +546,9 @@ TEST( Full_POSIX_PTHREAD, pthread_cond_signal )
     /* This is for espressif port, it does not implement PTHREAD_COND_INITIALIZER */
     iStatus = pthread_cond_init( &xCond, NULL );
     TEST_ASSERT_EQUAL_INT( 0, iStatus );
+    xCondCreated = pdTRUE;
 #endif
+
     /* Create an error-checking mutex. This mutex types allows verification
      * of mutex owner. */
     iStatus = pthread_mutexattr_init( &xMutexAttr );
@@ -609,6 +612,12 @@ TEST( Full_POSIX_PTHREAD, pthread_cond_signal )
     {
         ( void ) pthread_join( xNewThread, NULL );
     }
+
+    /* if condition var was initialized, call destroy to free resources */
+    if( xCondCreated == pdTRUE )
+    {
+        ( void ) pthread_cond_destroy( &xCond );
+    }
 }
 
 /*-----------------------------------------------------------*/
@@ -616,6 +625,8 @@ TEST( Full_POSIX_PTHREAD, pthread_cond_signal )
 TEST( Full_POSIX_PTHREAD, pthread_cond_broadcast )
 {
     int i = 0, iCondBroadcastStatus = 0;
+    BaseType_t xCondCreated = pdFALSE;
+
 #if posixconfigENABLE_PTHREAD_COND_T == 0
     pthread_cond_t xCond;
     int iStatus = 0;
@@ -630,7 +641,9 @@ TEST( Full_POSIX_PTHREAD, pthread_cond_broadcast )
     /* This is for espressif port, it does not implement PTHREAD_COND_INITIALIZER */
     iStatus = pthread_cond_init( &xCond, NULL );
     TEST_ASSERT_EQUAL_INT( 0, iStatus );
+    xCondCreated = pdTRUE;
 #endif
+
     /* Create the threads that wait for pthread_cond_broadcast. */
     for( i = 0; i < posixtestPTHREAD_COND_BROADCAST_NUMBER_OF_THREADS; i++ )
     {
@@ -663,6 +676,12 @@ TEST( Full_POSIX_PTHREAD, pthread_cond_broadcast )
     {
         TEST_ASSERT_EQUAL( pdTRUE, xThreadsCreated[ i ] );
         TEST_ASSERT_EQUAL_INT( 0, ( int ) xThreadReturnValues[ i ] );
+    }
+
+    /* if condition var was initialized, call destroy to free resources */
+    if( xCondCreated == pdTRUE )
+    {
+        ( void ) pthread_cond_destroy( &xCond );
     }
 }
 
